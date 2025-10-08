@@ -781,7 +781,7 @@ impl iron_remote_desktop::Session for Session {
         use ironrdp::pdu::input::fast_path::FastPathInput;
 
         let event = ironrdp::input::synchronize_event(scroll_lock, num_lock, caps_lock, kana_lock);
-        let fastpath_input = FastPathInput(vec![event]);
+        let fastpath_input = FastPathInput::single(event);
 
         let frame = ironrdp::core::encode_vec(&fastpath_input).context("FastPathInput encoding")?;
 
@@ -800,10 +800,10 @@ impl iron_remote_desktop::Session for Session {
         Ok(())
     }
 
-    async fn on_clipboard_paste(&self, content: Self::ClipboardData) -> Result<(), Self::Error> {
+    async fn on_clipboard_paste(&self, content: &Self::ClipboardData) -> Result<(), Self::Error> {
         self.input_events_tx
             .unbounded_send(RdpInputEvent::ClipboardBackend(
-                WasmClipboardBackendMessage::LocalClipboardChanged(content),
+                WasmClipboardBackendMessage::LocalClipboardChanged(content.clone()),
             ))
             .context("Send clipboard backend event")?;
 

@@ -199,7 +199,7 @@ impl<'a> UpdateEncoder<'a> {
         let cr = &mut [0i16; 4096];
 
         to_64x64_ycbcr_tile(input, tile_width, tile_height, stride, self.bitmap.format, y, cb, cr)
-            .map_err(RlgrError::YuvError)?;
+            .map_err(RlgrError::Yuv)?;
 
         let (y_data, buf) = buf.split_at_mut(4096);
         let (cb_data, cr_data) = buf.split_at_mut(4096);
@@ -220,6 +220,7 @@ impl<'a> UpdateEncoder<'a> {
 }
 
 #[cfg(feature = "__bench")]
+#[expect(clippy::missing_panics_doc, reason = "panics in benches are allowed")]
 pub(crate) mod bench {
     use super::*;
 

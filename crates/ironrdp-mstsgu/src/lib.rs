@@ -144,7 +144,7 @@ impl GwClient {
             .header(hyper::header::SEC_WEBSOCKET_VERSION, "13")
             .header(hyper::header::SEC_WEBSOCKET_KEY, generate_key())
             .body(http_body_util::Empty::<Bytes>::new())
-            .expect("Failed to build request");
+            .map_err(|e| custom_err!("failed to build request", e))?;
 
         let stream = hyper_util::rt::tokio::TokioIo::new(stream);
         let (mut sender, mut conn) = hyper::client::conn::http1::handshake(stream)
@@ -200,8 +200,7 @@ impl GwClient {
 
         let work = tokio::spawn(async move {
             let iv = Duration::from_secs(15 * 60);
-            let mut keepalive_interval: tokio::time::Interval =
-                tokio::time::interval_at(tokio::time::Instant::now() + iv, iv);
+            let mut keepalive_interval = tokio::time::interval_at(tokio::time::Instant::now() + iv, iv);
 
             loop {
                 let mut wsbuf = [0u8; 8192];
