@@ -553,7 +553,7 @@ impl Sequence for ClientConnector {
                 mut connection_activation,
             } => {
                 let written = connection_activation.step(input, output)?;
-                match connection_activation.state {
+                match connection_activation.connection_activation_state() {
                     ConnectionActivationState::ConnectionFinalization { .. } => (
                         written,
                         ClientConnectorState::ConnectionFinalization { connection_activation },
@@ -570,10 +570,10 @@ impl Sequence for ClientConnector {
             } => {
                 let written = connection_activation.step(input, output)?;
 
-                let next_state = if !connection_activation.state.is_terminal() {
+                let next_state = if !connection_activation.connection_activation_state().is_terminal() {
                     ClientConnectorState::ConnectionFinalization { connection_activation }
                 } else {
-                    match connection_activation.state {
+                    match connection_activation.connection_activation_state() {
                         ConnectionActivationState::Finalized {
                             io_channel_id,
                             user_channel_id,
@@ -699,9 +699,9 @@ fn create_gcc_blocks<'a>(
                 desktop_physical_width: Some(0),  // 0 per FreeRDP
                 desktop_physical_height: Some(0), // 0 per FreeRDP
                 desktop_orientation: if config.desktop_size.width > config.desktop_size.height {
-                    Some(MonitorOrientation::Landscape as u16)
+                    Some(MonitorOrientation::Landscape.as_u16())
                 } else {
-                    Some(MonitorOrientation::Portrait as u16)
+                    Some(MonitorOrientation::Portrait.as_u16())
                 },
                 desktop_scale_factor: Some(config.desktop_scale_factor),
                 device_scale_factor: if config.desktop_scale_factor >= 100 && config.desktop_scale_factor <= 500 {
