@@ -2397,6 +2397,7 @@ dependencies = [
  "ironrdp-connector",
  "ironrdp-core",
  "ironrdp-pdu",
+ "ironrdp-vmconnect",
  "tracing",
 ]
 
@@ -2448,6 +2449,7 @@ dependencies = [
  "ironrdp-rdpsnd-native",
  "ironrdp-tls",
  "ironrdp-tokio",
+ "ironrdp-vmconnect",
  "proc-exit",
  "raw-window-handle",
  "semver",
@@ -2860,12 +2862,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ironrdp-vmconnect"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "ironrdp-connector",
+ "ironrdp-core",
+ "ironrdp-pdu",
+ "sspi",
+ "tracing",
+]
+
+[[package]]
 name = "ironrdp-web"
 version = "0.0.0"
 dependencies = [
  "anyhow",
  "base64",
  "chrono",
+ "console_error_panic_hook",
  "futures-channel",
  "futures-util",
  "getrandom 0.2.16",
@@ -2880,6 +2895,7 @@ dependencies = [
  "ironrdp-propertyset",
  "ironrdp-rdcleanpath",
  "ironrdp-rdpfile",
+ "ironrdp-vmconnect",
  "js-sys",
  "png",
  "resize",
@@ -2890,6 +2906,7 @@ dependencies = [
  "tap",
  "time",
  "tracing",
+ "tracing-wasm",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -5102,8 +5119,7 @@ dependencies = [
 [[package]]
 name = "sspi"
 version = "0.16.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "523f6a99e26c1e6476a424d54bbda5354a01ee7f18b9d93dc48a8fd45ae8189b"
+source = "git+https://github.com/Devolutions/sspi-rs.git?rev=370951c1b017bfef4276185b374345e8b6b1e532#370951c1b017bfef4276185b374345e8b6b1e532"
 dependencies = [
  "async-dnssd",
  "async-recursion",
@@ -5678,6 +5694,17 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "tracing-wasm"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4575c663a174420fa2d78f4108ff68f65bf2fbb7dd89f33749b6e826b3626e07"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
+ "wasm-bindgen",
 ]
 
 [[package]]

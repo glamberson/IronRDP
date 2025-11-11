@@ -6,12 +6,13 @@
     "Benoit Cortier"
   ],
   "description": "RDP backend for iron-remote-desktop",
-  "version": "0.0.0",
+  "version": "0.7.0",
   "type": "module",
   "private": true,
   "scripts": {
     "dev": "npm run pre-build && vite",
     "build": "npm run pre-build && vite build",
+    "build:dev": "npm run pre-build && vite build --mode development",
     "build-alone": "vite build",
     "pre-build": "node ./pre-build.js",
     "preview": "vite preview",

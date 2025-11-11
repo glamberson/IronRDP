@@ -10,13 +10,14 @@
     "Alexandr Yusuk"
   ],
   "description": "Web Component providing agnostic implementation for Iron Wasm base client",
-  "version": "0.0.0",
+  "version": "0.10.0",
   "type": "module",
   "private": true,
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "build:dev": "vite build --mode development",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:dist": "tsc ./dist/index.d.ts --noEmit",
     "check:watch": "svelte-check --tsconfig ./tsconfig.json --watch",

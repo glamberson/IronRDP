@@ -7,14 +7,16 @@ use ironrdp_core::{decode, encode_vec, Encode, WriteBuf};
 use ironrdp_pdu::x224::X224;
 use ironrdp_pdu::{gcc, mcs, nego, rdp, PduHint};
 use ironrdp_svc::{StaticChannelSet, StaticVirtualChannel, SvcClientProcessor};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::channel_connection::{ChannelConnectionSequence, ChannelConnectionState};
 use crate::connection_activation::{ConnectionActivationSequence, ConnectionActivationState};
+use crate::credssp::{self};
 use crate::license_exchange::{LicenseExchangeSequence, NoopLicenseCache};
 use crate::{
     encode_x224_packet, general_err, reason_err, Config, ConnectorError, ConnectorErrorExt as _, ConnectorErrorKind,
-    ConnectorResult, DesktopSize, NegotiationFailure, Sequence, State, Written,
+    ConnectorResult, CredsspSequenceFactory, DesktopSize, NegotiationFailure, SecurityConnector, Sequence, State,
+    Written,
 };
 
 #[derive(Debug)]
@@ -153,7 +155,6 @@ impl ClientConnector {
     {
         self.static_channels.insert(channel);
     }
-
     pub fn get_static_channel_processor<T>(&mut self) -> Option<&T>
     where
         T: SvcClientProcessor + 'static,
@@ -197,6 +198,66 @@ impl ClientConnector {
         let res = self.step(&[], &mut WriteBuf::new()).expect("transition to next state");
         debug_assert!(!self.should_perform_credssp());
         assert_eq!(res, Written::Nothing);
+    }
+
+    pub fn selected_protocol(&self) -> Option<nego::SecurityProtocol> {
+        match &self.state {
+            ClientConnectorState::Credssp { selected_protocol } => Some(*selected_protocol),
+            _ => None,
+        }
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+}
+
+impl SecurityConnector for ClientConnector {
+    fn should_perform_security_upgrade(&self) -> bool {
+        ClientConnector::should_perform_security_upgrade(self)
+    }
+
+    fn mark_security_upgrade_as_done(&mut self) {
+        ClientConnector::mark_security_upgrade_as_done(self)
+    }
+
+    fn should_perform_credssp(&self) -> bool {
+        ClientConnector::should_perform_credssp(self)
+    }
+
+    fn selected_protocol(&self) -> Option<nego::SecurityProtocol> {
+        ClientConnector::selected_protocol(self)
+    }
+
+    fn mark_credssp_as_done(&mut self) {
+        ClientConnector::mark_credssp_as_done(self)
+    }
+
+    fn config(&self) -> &Config {
+        ClientConnector::config(self)
+    }
+}
+
+impl CredsspSequenceFactory for ClientConnector {
+    fn init_credssp(
+        &self,
+        credentials: crate::Credentials,
+        domain: Option<&str>,
+        protocol: nego::SecurityProtocol,
+        server_name: crate::ServerName,
+        server_public_key: Vec<u8>,
+        kerberos_config: Option<credssp::KerberosConfig>,
+    ) -> ConnectorResult<(Box<dyn credssp::CredsspSequenceTrait>, sspi::credssp::TsRequest)> {
+        let (sequence, ts_request) = credssp::CredsspSequence::init(
+            credentials,
+            domain,
+            protocol,
+            server_name,
+            server_public_key,
+            kerberos_config,
+        )?;
+
+        Ok((Box::new(sequence), ts_request))
     }
 }
 
@@ -357,6 +418,8 @@ impl Sequence for ClientConnector {
                 debug!(message = ?connect_initial, "Send");
 
                 let written = encode_x224_packet(&connect_initial, output)?;
+
+                trace!(written, "Written");
 
                 (
                     Written::from_size(written)?,

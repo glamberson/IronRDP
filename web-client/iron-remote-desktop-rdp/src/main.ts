@@ -43,3 +43,9 @@ export function outboundMessageSizeLimit(limit: number): Extension {
 export function enableCredssp(enable: boolean): Extension {
     return new Extension('enable_credssp', enable);
 }
+
+export function vmConnect(vm_id: string): Extension {
+    return new Extension('vmconnect', vm_id);
+}
+
+console.log('FK ANGULAR, this is updated at 9.30');

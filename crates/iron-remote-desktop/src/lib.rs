@@ -437,6 +437,7 @@ macro_rules! make_bridge {
 
 #[doc(hidden)]
 pub mod internal {
+    use tracing::Level;
     #[doc(hidden)]
     pub use wasm_bindgen;
     #[doc(hidden)]
@@ -458,7 +459,8 @@ pub mod internal {
         }
     }
 
-    fn set_logger_once(level: tracing::Level) {
+    fn set_logger_once(_level: tracing::Level) {
+        use tracing::Level;
         use tracing_subscriber::filter::LevelFilter;
         use tracing_subscriber::fmt::time::UtcTime;
         use tracing_subscriber::prelude::*;
@@ -472,7 +474,7 @@ pub mod internal {
                 .with_timer(UtcTime::rfc_3339()) // std::time is not available in browsers
                 .with_writer(MakeConsoleWriter);
 
-            let level_filter = LevelFilter::from_level(level);
+            let level_filter = LevelFilter::from_level(Level::TRACE);
 
             tracing_subscriber::registry().with(fmt_layer).with(level_filter).init();
         })
