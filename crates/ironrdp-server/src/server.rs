@@ -553,9 +553,7 @@ impl RdpServer {
                     let msgs = match c {
                         ClipboardMessage::SendInitiateCopy(formats) => {
                             info!("🔍 SendInitiateCopy with {} formats", formats.len());
-                            let result = cliprdr.initiate_copy(&formats)?;
-                            info!("🔍 initiate_copy returned {} messages", result.len());
-                            result
+                            cliprdr.initiate_copy(&formats)?
                         }
                         ClipboardMessage::SendFormatData(data) => {
                             info!("🔍 SendFormatData");
@@ -570,7 +568,7 @@ impl RdpServer {
                             continue;
                         }
                     };
-                    info!("🔍 Converting {} messages to Vec", msgs.len());
+                    info!("🔍 Converting messages to Vec");
                     let msg_vec: Vec<_> = msgs.into();
                     info!("🔍 Encoding {} SvcMessages for channel", msg_vec.len());
                     let channel_id = self
