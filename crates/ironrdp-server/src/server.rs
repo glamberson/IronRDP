@@ -580,6 +580,13 @@ impl RdpServer {
                     if data.len() >= 20 {
                         info!("🔍 First 20 bytes: {:02x?}", &data[..20]);
                     }
+                    if data.len() >= 40 {
+                        info!("🔍 Bytes 20-40: {:02x?}", &data[20..40.min(data.len())]);
+                    }
+                    if data.len() >= 60 {
+                        info!("🔍 Bytes 40-60: {:02x?}", &data[40..60.min(data.len())]);
+                    }
+                    info!("🔍 About to write {} bytes to wire", data.len());
                     writer.write_all(&data).await?;
                     info!("🔍 Clipboard data written to wire");
                 }
