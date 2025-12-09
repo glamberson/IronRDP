@@ -544,25 +544,46 @@ impl RdpServer {
                     writer.write_all(&data).await?;
                 }
                 ServerEvent::Clipboard(c) => {
+                    info!("🔍 ServerEvent::Clipboard received");
                     let Some(cliprdr) = self.get_svc_processor::<CliprdrServer>() else {
                         warn!("No clipboard channel, dropping event");
                         continue;
                     };
+                    info!("🔍 Got cliprdr processor");
                     let msgs = match c {
-                        ClipboardMessage::SendInitiateCopy(formats) => cliprdr.initiate_copy(&formats),
-                        ClipboardMessage::SendFormatData(data) => cliprdr.submit_format_data(data),
-                        ClipboardMessage::SendInitiatePaste(format) => cliprdr.initiate_paste(format),
+                        ClipboardMessage::SendInitiateCopy(formats) => {
+                            info!("🔍 SendInitiateCopy with {} formats", formats.len());
+                            let result = cliprdr.initiate_copy(&formats)?;
+                            info!("🔍 initiate_copy returned {} messages", result.len());
+                            result
+                        }
+                        ClipboardMessage::SendFormatData(data) => {
+                            info!("🔍 SendFormatData");
+                            cliprdr.submit_format_data(data)?
+                        }
+                        ClipboardMessage::SendInitiatePaste(format) => {
+                            info!("🔍 SendInitiatePaste");
+                            cliprdr.initiate_paste(format)?
+                        }
                         ClipboardMessage::Error(error) => {
                             error!(?error, "Handling clipboard event");
                             continue;
                         }
-                    }
-                    .context("failed to send clipboard event")?;
+                    };
+                    info!("🔍 Converting {} messages to Vec", msgs.len());
+                    let msg_vec: Vec<_> = msgs.into();
+                    info!("🔍 Encoding {} SvcMessages for channel", msg_vec.len());
                     let channel_id = self
                         .get_channel_id_by_type::<CliprdrServer>()
                         .ok_or_else(|| anyhow!("SVC channel not found"))?;
-                    let data = server_encode_svc_messages(msgs.into(), channel_id, user_channel_id)?;
+                    info!("🔍 Channel ID: {}, user_channel_id: {}", channel_id, user_channel_id);
+                    let data = server_encode_svc_messages(msg_vec, channel_id, user_channel_id)?;
+                    info!("🔍 Encoded {} bytes", data.len());
+                    if data.len() >= 20 {
+                        info!("🔍 First 20 bytes: {:02x?}", &data[..20]);
+                    }
                     writer.write_all(&data).await?;
+                    info!("🔍 Clipboard data written to wire");
                 }
             }
         }

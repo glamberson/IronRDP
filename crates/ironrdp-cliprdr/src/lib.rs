@@ -241,11 +241,12 @@ impl<R: Role> Cliprdr<R> {
         // This fix enables RDP servers to properly announce clipboard ownership to clients by
         // sending CB_FORMAT_LIST (0x0002) PDU regardless of internal state machine state.
         if R::is_server() {
-            info!("SERVER initiate_copy: sending FormatList (state={:?}, {} formats)",
+            info!("🔍 SERVER initiate_copy: sending FormatList (state={:?}, {} formats)",
                   self.state, available_formats.len());
             pdus.push(ClipboardPdu::FormatList(
                 self.build_format_list(available_formats).map_err(|e| encode_err!(e))?,
             ));
+            info!("🔍 SERVER initiate_copy: pdus vec now has {} items", pdus.len());
         } else {
             // CLIENT: Use original state machine logic
             match self.state {
@@ -271,7 +272,13 @@ impl<R: Role> Cliprdr<R> {
             }
         }
 
-        Ok(pdus.into_iter().map(into_cliprdr_message).collect::<Vec<_>>().into())
+        info!("🔍 initiate_copy: converting {} pdus to SvcMessages", pdus.len());
+        let messages: Vec<_> = pdus.into_iter().map(into_cliprdr_message).collect();
+        info!("🔍 initiate_copy: returning {} SvcMessages", messages.len());
+        for (i, msg) in messages.iter().enumerate() {
+            info!("🔍   Message {}: {:?}", i, msg);
+        }
+        Ok(messages.into())
     }
 
     /// Starts processing of `CLIPRDR` paste command. Should be called by the clipboard
@@ -362,7 +369,10 @@ impl<R: Role> SvcProcessor for Cliprdr<R> {
 fn into_cliprdr_message(pdu: ClipboardPdu<'static>) -> SvcMessage {
     // Adding [`CHANNEL_FLAG_SHOW_PROTOCOL`] is a must for clipboard svc messages, because they
     // contain chunked data. This is the requirement from `MS_RDPBCGR` specification.
-    SvcMessage::from(pdu).with_flags(ChannelFlags::SHOW_PROTOCOL)
+    info!("🔍 into_cliprdr_message: Converting {}", pdu.message_name());
+    let msg = SvcMessage::from(pdu).with_flags(ChannelFlags::SHOW_PROTOCOL);
+    info!("🔍 into_cliprdr_message: Created SvcMessage");
+    msg
 }
 
 #[derive(Debug)]
