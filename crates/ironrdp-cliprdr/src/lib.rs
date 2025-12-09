@@ -230,26 +230,44 @@ impl<R: Role> Cliprdr<R> {
     pub fn initiate_copy(&self, available_formats: &[ClipboardFormat]) -> PduResult<CliprdrSvcMessages<R>> {
         let mut pdus = Vec::new();
 
-        match (self.state, R::is_server()) {
-            // When user initiates copy, we should send format list to server.
-            (CliprdrState::Ready, _) => {
-                pdus.push(ClipboardPdu::FormatList(
-                    self.build_format_list(available_formats).map_err(|e| encode_err!(e))?,
-                ));
-            }
-            (CliprdrState::Initialization, false) => {
-                // During initialization state, first copy action is synthetic and should be sent along with
-                // capabilities and temporary directory PDUs.
-                pdus.push(ClipboardPdu::Capabilities(self.capabilities.clone()));
-                pdus.push(ClipboardPdu::TemporaryDirectory(
-                    ClientTemporaryDirectory::new(self.backend.temporary_directory()).map_err(|e| encode_err!(e))?,
-                ));
-                pdus.push(ClipboardPdu::FormatList(
-                    self.build_format_list(available_formats).map_err(|e| encode_err!(e))?,
-                ));
-            }
-            _ => {
-                error!(?self.state, "Attempted to initiate copy in incorrect state");
+        // PATCH: Servers should always be able to announce clipboard changes, regardless of state
+        // The Initialization/Ready state machine is designed for CLIENTS where clipboard must
+        // be initialized before use. But SERVERS can announce clipboard changes anytime after
+        // channel negotiation per MS-RDPECLIP specification.
+        //
+        // MS-RDPECLIP Section 2.2.3.1: "The Format List PDU is sent by either the client or
+        // the server when its local system clipboard is updated with new clipboard data."
+        //
+        // This fix enables RDP servers to properly announce clipboard ownership to clients by
+        // sending CB_FORMAT_LIST (0x0002) PDU regardless of internal state machine state.
+        if R::is_server() {
+            info!("SERVER initiate_copy: sending FormatList (state={:?}, {} formats)",
+                  self.state, available_formats.len());
+            pdus.push(ClipboardPdu::FormatList(
+                self.build_format_list(available_formats).map_err(|e| encode_err!(e))?,
+            ));
+        } else {
+            // CLIENT: Use original state machine logic
+            match self.state {
+                CliprdrState::Ready => {
+                    pdus.push(ClipboardPdu::FormatList(
+                        self.build_format_list(available_formats).map_err(|e| encode_err!(e))?,
+                    ));
+                }
+                CliprdrState::Initialization => {
+                    // During initialization state, first copy action is synthetic and should be sent along with
+                    // capabilities and temporary directory PDUs.
+                    pdus.push(ClipboardPdu::Capabilities(self.capabilities.clone()));
+                    pdus.push(ClipboardPdu::TemporaryDirectory(
+                        ClientTemporaryDirectory::new(self.backend.temporary_directory()).map_err(|e| encode_err!(e))?,
+                    ));
+                    pdus.push(ClipboardPdu::FormatList(
+                        self.build_format_list(available_formats).map_err(|e| encode_err!(e))?,
+                    ));
+                }
+                _ => {
+                    error!(?self.state, "Attempted to initiate copy in incorrect state");
+                }
             }
         }
 
