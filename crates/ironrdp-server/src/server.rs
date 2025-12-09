@@ -588,7 +588,8 @@ impl RdpServer {
                     }
                     info!("🔍 About to write {} bytes to wire", data.len());
                     writer.write_all(&data).await?;
-                    info!("🔍 Clipboard data written to wire");
+                    writer.flush().await?;
+                    info!("🔍 Clipboard data written and flushed to wire ({} bytes confirmed)", data.len());
                 }
             }
         }
