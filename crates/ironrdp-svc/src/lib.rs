@@ -206,16 +206,11 @@ fn encode_svc_messages(
             encode_buf(&X224(pdu), &mut fully_encoded_responses)?;
         }
     } else {
-        for (i, chunk) in chunks.iter().enumerate() {
-            let chunk_data = chunk.filled();
-            tracing::info!("🔍 Encoding SendDataIndication chunk {} for channel {}: {} bytes", i, channel_id, chunk_data.len());
-            if chunk_data.len() >= 20 {
-                tracing::info!("🔍   Chunk {} first 20 bytes: {:02x?}", i, &chunk_data[..20]);
-            }
+        for chunk in chunks {
             let pdu = mcs::SendDataIndication {
                 initiator_id,
                 channel_id,
-                user_data: Cow::Borrowed(chunk_data),
+                user_data: Cow::Borrowed(chunk.filled()),
             };
             encode_buf(&X224(pdu), &mut fully_encoded_responses)?;
         }
