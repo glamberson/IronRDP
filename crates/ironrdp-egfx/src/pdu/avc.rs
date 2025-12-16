@@ -216,3 +216,320 @@ impl<'de> Decode<'de> for Avc444BitmapStream<'de> {
         }
     }
 }
+
+// ============================================================================
+// Server-side utilities for H.264/AVC encoding
+// ============================================================================
+
+/// Region metadata for AVC420 bitmap streams (server-side)
+///
+/// Describes a rectangular region within the frame along with its
+/// H.264 encoding parameters.
+///
+/// # Example
+///
+/// ```
+/// use ironrdp_egfx::pdu::Avc420Region;
+///
+/// // Create a region covering a 1920x1080 frame
+/// let region = Avc420Region::full_frame(1920, 1080, 22);
+/// assert_eq!(region.left, 0);
+/// assert_eq!(region.right, 1919);
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Avc420Region {
+    /// Left edge of the region (inclusive)
+    pub left: u16,
+    /// Top edge of the region (inclusive)
+    pub top: u16,
+    /// Right edge of the region (inclusive)
+    pub right: u16,
+    /// Bottom edge of the region (inclusive)
+    pub bottom: u16,
+    /// H.264 quantization parameter (0-51, lower = higher quality)
+    pub quantization_parameter: u8,
+    /// Quality value (0-100)
+    pub quality: u8,
+}
+
+impl Avc420Region {
+    /// Create a region covering the entire frame
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - Frame width in pixels
+    /// * `height` - Frame height in pixels
+    /// * `qp` - H.264 quantization parameter (0-51)
+    #[must_use]
+    pub fn full_frame(width: u16, height: u16, qp: u8) -> Self {
+        Self {
+            left: 0,
+            top: 0,
+            right: width.saturating_sub(1),
+            bottom: height.saturating_sub(1),
+            quantization_parameter: qp,
+            quality: 100,
+        }
+    }
+
+    /// Create a region with custom bounds
+    #[must_use]
+    pub fn new(left: u16, top: u16, right: u16, bottom: u16, qp: u8, quality: u8) -> Self {
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+            quantization_parameter: qp,
+            quality,
+        }
+    }
+
+    /// Convert to `InclusiveRectangle` for PDU encoding
+    #[must_use]
+    pub fn to_rectangle(&self) -> InclusiveRectangle {
+        InclusiveRectangle {
+            left: self.left,
+            top: self.top,
+            right: self.right,
+            bottom: self.bottom,
+        }
+    }
+
+    /// Convert to `QuantQuality` for PDU encoding
+    #[must_use]
+    pub fn to_quant_quality(&self) -> QuantQuality {
+        QuantQuality {
+            quantization_parameter: self.quantization_parameter,
+            progressive: false,
+            quality: self.quality,
+        }
+    }
+}
+
+/// Convert H.264 Annex B format to AVC format
+///
+/// MS-RDPEGFX requires AVC format (length-prefixed NAL units),
+/// but most encoders output Annex B format (start code prefixed).
+///
+/// ```text
+/// Annex B: 00 00 00 01 <NAL> 00 00 00 01 <NAL> ...
+/// AVC:     <4-byte BE length> <NAL> <4-byte BE length> <NAL> ...
+/// ```
+///
+/// # Arguments
+///
+/// * `data` - H.264 bitstream in Annex B format
+///
+/// # Returns
+///
+/// H.264 bitstream in AVC format with 4-byte big-endian length prefixes
+///
+/// # Example
+///
+/// ```
+/// use ironrdp_egfx::pdu::annex_b_to_avc;
+///
+/// // NAL unit with 3-byte start code
+/// let annex_b = [0x00, 0x00, 0x01, 0x67, 0x42, 0x00];
+/// let avc = annex_b_to_avc(&annex_b);
+/// // Result: [0x00, 0x00, 0x00, 0x03, 0x67, 0x42, 0x00]
+/// assert_eq!(avc[0..4], [0, 0, 0, 3]); // 4-byte length = 3
+/// ```
+#[must_use]
+pub fn annex_b_to_avc(data: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(data.len());
+    let mut i = 0;
+
+    while i < data.len() {
+        // Find start code (00 00 01 or 00 00 00 01)
+        let start;
+
+        if i + 4 <= data.len() && data[i..i + 4] == [0, 0, 0, 1] {
+            start = i + 4;
+        } else if i + 3 <= data.len() && data[i..i + 3] == [0, 0, 1] {
+            start = i + 3;
+        } else {
+            i += 1;
+            continue;
+        }
+
+        // Find next start code or end of data
+        let mut end = data.len();
+        for j in start..data.len().saturating_sub(2) {
+            if data[j..j + 3] == [0, 0, 1] {
+                // Could be 3-byte or 4-byte start code
+                // Check if there's a leading zero (4-byte)
+                if j > 0 && data[j - 1] == 0 {
+                    end = j - 1;
+                } else {
+                    end = j;
+                }
+                break;
+            }
+        }
+
+        // Write length-prefixed NAL unit
+        let nal_data = &data[start..end];
+        if !nal_data.is_empty() {
+            // NAL units in H.264 are limited to ~4GB (32-bit length), so truncation is not a concern
+            #[allow(clippy::cast_possible_truncation)]
+            let len = nal_data.len() as u32;
+            result.extend_from_slice(&len.to_be_bytes());
+            result.extend_from_slice(nal_data);
+        }
+
+        i = start + (end - start);
+        // Skip past start code prefix for next iteration
+        if i == end && end < data.len() {
+            i = end;
+        }
+    }
+
+    result
+}
+
+/// Align a dimension to 16-pixel boundary
+///
+/// H.264 operates on 16x16 macroblocks. This function rounds up
+/// a dimension to the nearest multiple of 16.
+///
+/// # Example
+///
+/// ```
+/// use ironrdp_egfx::pdu::align_to_16;
+///
+/// assert_eq!(align_to_16(1920), 1920); // Already aligned
+/// assert_eq!(align_to_16(1080), 1088); // Rounded up
+/// assert_eq!(align_to_16(1), 16);
+/// ```
+#[must_use]
+pub const fn align_to_16(dimension: u32) -> u32 {
+    (dimension + 15) & !15
+}
+
+/// Create an owned AVC420 bitmap stream from regions and H.264 data
+///
+/// This is a helper for server-side frame encoding. It creates
+/// the bitmap stream structure that can be embedded in a
+/// `WireToSurface1Pdu`.
+///
+/// # Arguments
+///
+/// * `regions` - List of regions with their encoding parameters
+/// * `h264_data` - H.264 encoded data (should be in AVC format, not Annex B)
+///
+/// # Returns
+///
+/// Encoded `Avc420BitmapStream` as a byte vector
+#[must_use]
+pub fn encode_avc420_bitmap_stream(regions: &[Avc420Region], h264_data: &[u8]) -> Vec<u8> {
+    let rectangles: Vec<InclusiveRectangle> = regions.iter().map(Avc420Region::to_rectangle).collect();
+
+    let quant_qual_vals: Vec<QuantQuality> = regions.iter().map(Avc420Region::to_quant_quality).collect();
+
+    let stream = Avc420BitmapStream {
+        rectangles,
+        quant_qual_vals,
+        data: h264_data,
+    };
+
+    // Calculate size and encode
+    let size = stream.size();
+    let mut buf = vec![0u8; size];
+    let mut cursor = WriteCursor::new(&mut buf);
+
+    // This should not fail as we pre-allocated the exact size
+    stream.encode(&mut cursor).expect("encode_avc420_bitmap_stream: encoding failed");
+
+    buf
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_avc420_region_full_frame() {
+        let region = Avc420Region::full_frame(1920, 1080, 22);
+        assert_eq!(region.left, 0);
+        assert_eq!(region.top, 0);
+        assert_eq!(region.right, 1919);
+        assert_eq!(region.bottom, 1079);
+        assert_eq!(region.quantization_parameter, 22);
+        assert_eq!(region.quality, 100);
+    }
+
+    #[test]
+    fn test_align_to_16() {
+        assert_eq!(align_to_16(0), 0);
+        assert_eq!(align_to_16(1), 16);
+        assert_eq!(align_to_16(15), 16);
+        assert_eq!(align_to_16(16), 16);
+        assert_eq!(align_to_16(17), 32);
+        assert_eq!(align_to_16(1920), 1920);
+        assert_eq!(align_to_16(1080), 1088);
+    }
+
+    #[test]
+    fn test_annex_b_to_avc_3byte_start() {
+        // NAL with 3-byte start code: 00 00 01 <NAL>
+        let annex_b = [0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1E];
+        let avc = annex_b_to_avc(&annex_b);
+
+        // Should be: 4-byte length (4) + NAL data
+        assert_eq!(avc.len(), 8);
+        assert_eq!(&avc[0..4], &[0, 0, 0, 4]); // Length = 4
+        assert_eq!(&avc[4..8], &[0x67, 0x42, 0x00, 0x1E]);
+    }
+
+    #[test]
+    fn test_annex_b_to_avc_4byte_start() {
+        // NAL with 4-byte start code: 00 00 00 01 <NAL>
+        let annex_b = [0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00];
+        let avc = annex_b_to_avc(&annex_b);
+
+        assert_eq!(avc.len(), 7);
+        assert_eq!(&avc[0..4], &[0, 0, 0, 3]); // Length = 3
+        assert_eq!(&avc[4..7], &[0x67, 0x42, 0x00]);
+    }
+
+    #[test]
+    fn test_annex_b_to_avc_multiple_nals() {
+        // Two NAL units
+        let annex_b = [
+            0x00, 0x00, 0x00, 0x01, 0x67, 0x42, // SPS
+            0x00, 0x00, 0x01, 0x68, 0xCE, // PPS with 3-byte start
+        ];
+        let avc = annex_b_to_avc(&annex_b);
+
+        // First NAL: 4 bytes length + 2 bytes data
+        // Second NAL: 4 bytes length + 2 bytes data
+        assert!(avc.len() >= 12);
+    }
+
+    #[test]
+    fn test_annex_b_to_avc_empty() {
+        let avc = annex_b_to_avc(&[]);
+        assert!(avc.is_empty());
+    }
+
+    #[test]
+    fn test_encode_avc420_bitmap_stream() {
+        let regions = vec![Avc420Region::full_frame(1920, 1080, 22)];
+        let h264_data = [0x00, 0x00, 0x00, 0x01, 0x67]; // Minimal H.264
+
+        let encoded = encode_avc420_bitmap_stream(&regions, &h264_data);
+
+        // Should have: 4 bytes (nRect=1) + 8 bytes (rectangle) + 2 bytes (quant) + 5 bytes (data)
+        assert_eq!(encoded.len(), 4 + 8 + 2 + 5);
+
+        // Verify we can decode it back
+        let mut cursor = ReadCursor::new(&encoded);
+        let decoded = Avc420BitmapStream::decode(&mut cursor).expect("decode failed");
+
+        assert_eq!(decoded.rectangles.len(), 1);
+        assert_eq!(decoded.quant_qual_vals.len(), 1);
+        assert_eq!(decoded.data, &h264_data);
+    }
+}
