@@ -440,7 +440,9 @@ pub fn encode_avc420_bitmap_stream(regions: &[Avc420Region], h264_data: &[u8]) -
     let mut cursor = WriteCursor::new(&mut buf);
 
     // This should not fail as we pre-allocated the exact size
-    stream.encode(&mut cursor).expect("encode_avc420_bitmap_stream: encoding failed");
+    stream
+        .encode(&mut cursor)
+        .expect("encode_avc420_bitmap_stream: encoding failed");
 
     buf
 }
