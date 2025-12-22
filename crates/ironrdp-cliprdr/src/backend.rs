@@ -55,6 +55,19 @@ pub enum ClipboardMessage {
         data_id: Option<u32>,
     },
 
+    /// Lock clipboard data on the remote peer before file transfer.
+    ///
+    /// When `CB_CAN_LOCK_CLIPDATA` is negotiated, should be sent before
+    /// `SendFileContentsRequest` to ensure clipboard data is not modified.
+    SendLockClipboard {
+        clip_data_id: u32,
+    },
+
+    /// Unlock clipboard data after file transfer is complete.
+    SendUnlockClipboard {
+        clip_data_id: u32,
+    },
+
     /// Failure received from the OS clipboard event loop.
     ///
     /// Client implementation should log/display this error.

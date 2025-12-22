@@ -567,6 +567,12 @@ impl RdpServer {
                             is_size_request,
                             data_id,
                         ),
+                        ClipboardMessage::SendLockClipboard { clip_data_id } => {
+                            cliprdr.lock_clipboard(clip_data_id)
+                        }
+                        ClipboardMessage::SendUnlockClipboard { clip_data_id } => {
+                            cliprdr.unlock_clipboard(clip_data_id)
+                        }
                         ClipboardMessage::Error(error) => {
                             error!(?error, "Handling clipboard event");
                             continue;
