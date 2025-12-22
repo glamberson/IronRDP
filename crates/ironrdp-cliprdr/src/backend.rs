@@ -33,6 +33,28 @@ pub enum ClipboardMessage {
     /// received.
     SendInitiatePaste(ClipboardFormatId),
 
+    /// Sent by clipboard backend when file contents are needed from the remote.
+    ///
+    /// Server implementation should send file contents request on `CLIPRDR` SVC when this
+    /// message is received. This is used to retrieve actual file data after receiving a
+    /// `FileGroupDescriptorW` format list from the client.
+    ///
+    /// Parameters:
+    /// - `stream_id`: Unique identifier for correlating request/response
+    /// - `index`: Index of the file in the file list
+    /// - `position`: Byte offset within the file
+    /// - `requested_size`: Maximum bytes to retrieve
+    /// - `is_size_request`: If true, requests file size instead of data
+    /// - `data_id`: Optional data lock identifier
+    SendFileContentsRequest {
+        stream_id: u32,
+        index: u32,
+        position: u64,
+        requested_size: u32,
+        is_size_request: bool,
+        data_id: Option<u32>,
+    },
+
     /// Failure received from the OS clipboard event loop.
     ///
     /// Client implementation should log/display this error.
