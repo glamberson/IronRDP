@@ -15,8 +15,8 @@ use ironrdp_svc::{
 };
 use pdu::{
     Capabilities, ClientTemporaryDirectory, ClipboardFormat, ClipboardFormatId, ClipboardGeneralCapabilityFlags,
-    ClipboardPdu, ClipboardProtocolVersion, FileContentsResponse, FormatDataRequest, FormatListResponse,
-    OwnedFormatDataResponse,
+    ClipboardPdu, ClipboardProtocolVersion, FileContentsFlags, FileContentsRequest, FileContentsResponse,
+    FormatDataRequest, FormatListResponse, OwnedFormatDataResponse,
 };
 use tracing::{error, info};
 
@@ -272,6 +272,57 @@ impl<R: Role> Cliprdr<R> {
         // receive response with contents via `FormatDataResponse` PDU.
         let pdu = ClipboardPdu::FormatDataRequest(FormatDataRequest {
             format: requested_format,
+        });
+
+        Ok(vec![into_cliprdr_message(pdu)].into())
+    }
+
+    /// Requests file contents from the remote clipboard.
+    ///
+    /// Should be called by the clipboard implementation when it needs to retrieve file data
+    /// from the remote. This is typically used after receiving a format list containing file
+    /// descriptors ([`FileGroupDescriptorW`]) and the corresponding descriptor data.
+    ///
+    /// The remote will respond with a [`FileContentsResponse`] PDU, which will be delivered
+    /// via [`CliprdrBackend::on_file_contents_response`].
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Unique identifier for this request (used to correlate responses)
+    /// * `index` - Index of the file in the file list (from `FileGroupDescriptorW`)
+    /// * `position` - Byte offset within the file to start reading
+    /// * `requested_size` - Maximum number of bytes to retrieve
+    /// * `is_size_request` - If true, requests the file size instead of contents
+    /// * `data_id` - Optional data lock identifier for clipboard data locking
+    ///
+    /// # See Also
+    ///
+    /// - [\[MS-RDPECLIP\] 2.2.5.3 File Contents Request PDU](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/13cd5164-6d6a-4c53-9f53-951ce04e6896)
+    /// - [`CliprdrBackend::on_file_contents_response`]
+    pub fn request_file_contents(
+        &self,
+        stream_id: u32,
+        index: u32,
+        position: u64,
+        requested_size: u32,
+        is_size_request: bool,
+        data_id: Option<u32>,
+    ) -> PduResult<CliprdrSvcMessages<R>> {
+        ready_guard!(self, request_file_contents);
+
+        let flags = if is_size_request {
+            FileContentsFlags::SIZE
+        } else {
+            FileContentsFlags::DATA
+        };
+
+        let pdu = ClipboardPdu::FileContentsRequest(FileContentsRequest {
+            stream_id,
+            index,
+            flags,
+            position,
+            requested_size,
+            data_id,
         });
 
         Ok(vec![into_cliprdr_message(pdu)].into())
