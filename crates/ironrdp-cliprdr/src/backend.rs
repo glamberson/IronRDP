@@ -68,6 +68,12 @@ pub enum ClipboardMessage {
         clip_data_id: u32,
     },
 
+    /// Sent by clipboard backend when file contents are ready to be sent to the remote.
+    ///
+    /// Server implementation should send file contents response on `CLIPRDR` SVC when this
+    /// message is received. This is used to respond to a FileContentsRequest from the client.
+    SendFileContentsResponse(FileContentsResponse<'static>),
+
     /// Failure received from the OS clipboard event loop.
     ///
     /// Client implementation should log/display this error.
