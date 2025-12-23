@@ -15,8 +15,8 @@ use ironrdp_svc::{
 };
 use pdu::{
     Capabilities, ClientTemporaryDirectory, ClipboardFormat, ClipboardFormatId, ClipboardGeneralCapabilityFlags,
-    ClipboardPdu, ClipboardProtocolVersion, FileContentsResponse, FormatDataRequest, FormatListResponse,
-    OwnedFormatDataResponse,
+    ClipboardPdu, ClipboardProtocolVersion, FileContentsFlags, FileContentsRequest, FileContentsResponse,
+    FormatDataRequest, FormatListResponse, LockDataId, OwnedFormatDataResponse,
 };
 use tracing::{error, info};
 
@@ -274,6 +274,95 @@ impl<R: Role> Cliprdr<R> {
             format: requested_format,
         });
 
+        Ok(vec![into_cliprdr_message(pdu)].into())
+    }
+
+    /// Requests file contents from the remote clipboard.
+    ///
+    /// Should be called by the clipboard implementation when it needs to retrieve file data
+    /// from the remote. This is typically used after receiving a format list containing file
+    /// descriptors ([`FileGroupDescriptorW`]) and the corresponding descriptor data.
+    ///
+    /// The remote will respond with a [`FileContentsResponse`] PDU, which will be delivered
+    /// via [`CliprdrBackend::on_file_contents_response`].
+    ///
+    /// # Arguments
+    ///
+    /// * `stream_id` - Unique identifier for this request (used to correlate responses)
+    /// * `index` - Index of the file in the file list (from `FileGroupDescriptorW`)
+    /// * `position` - Byte offset within the file to start reading
+    /// * `requested_size` - Maximum number of bytes to retrieve
+    /// * `is_size_request` - If true, requests the file size instead of contents
+    /// * `data_id` - Optional data lock identifier for clipboard data locking
+    ///
+    /// # See Also
+    ///
+    /// - [\[MS-RDPECLIP\] 2.2.5.3 File Contents Request PDU](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/13cd5164-6d6a-4c53-9f53-951ce04e6896)
+    /// - [`CliprdrBackend::on_file_contents_response`]
+    pub fn request_file_contents(
+        &self,
+        stream_id: u32,
+        index: u32,
+        position: u64,
+        requested_size: u32,
+        is_size_request: bool,
+        data_id: Option<u32>,
+    ) -> PduResult<CliprdrSvcMessages<R>> {
+        ready_guard!(self, request_file_contents);
+
+        let flags = if is_size_request {
+            FileContentsFlags::SIZE
+        } else {
+            FileContentsFlags::DATA
+        };
+
+        let pdu = ClipboardPdu::FileContentsRequest(FileContentsRequest {
+            stream_id,
+            index,
+            flags,
+            position,
+            requested_size,
+            data_id,
+        });
+
+        Ok(vec![into_cliprdr_message(pdu)].into())
+    }
+
+    /// Locks clipboard data on the remote peer.
+    ///
+    /// When `CB_CAN_LOCK_CLIPDATA` is negotiated, the server SHOULD lock clipboard
+    /// data before sending File Contents Request PDUs. The returned `clip_data_id`
+    /// should be used in subsequent `request_file_contents` calls.
+    ///
+    /// # Arguments
+    ///
+    /// * `clip_data_id` - A unique identifier for this lock operation
+    ///
+    /// # See Also
+    ///
+    /// - [\[MS-RDPECLIP\] 2.2.4.6 Lock Clipboard Data PDU](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/1fd9455c-f93a-4276-a1fc-b1c23e43b164)
+    pub fn lock_clipboard(&self, clip_data_id: u32) -> PduResult<CliprdrSvcMessages<R>> {
+        ready_guard!(self, lock_clipboard);
+
+        let pdu = ClipboardPdu::LockData(LockDataId(clip_data_id));
+        Ok(vec![into_cliprdr_message(pdu)].into())
+    }
+
+    /// Unlocks previously locked clipboard data.
+    ///
+    /// Should be called after file transfer operations are complete.
+    ///
+    /// # Arguments
+    ///
+    /// * `clip_data_id` - The identifier used in the corresponding `lock_clipboard` call
+    ///
+    /// # See Also
+    ///
+    /// - [\[MS-RDPECLIP\] 2.2.4.7 Unlock Clipboard Data PDU](https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpeclip/e587a20c-fb7c-47d1-8698-4bcb92c48a38)
+    pub fn unlock_clipboard(&self, clip_data_id: u32) -> PduResult<CliprdrSvcMessages<R>> {
+        ready_guard!(self, unlock_clipboard);
+
+        let pdu = ClipboardPdu::UnlockData(LockDataId(clip_data_id));
         Ok(vec![into_cliprdr_message(pdu)].into())
     }
 }
