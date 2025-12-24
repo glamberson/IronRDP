@@ -21,6 +21,7 @@ helper = ["dep:x509-cert", "dep:rustls-pemfile"]
 rayon = ["dep:rayon"]
 qoi = ["dep:qoicoubeh", "ironrdp-pdu/qoi"]
 qoiz = ["dep:zstd-safe", "qoi", "ironrdp-pdu/qoiz"]
+egfx = ["dep:ironrdp-egfx"]
 
 # Internal (PRIVATE!) features used to aid testing.
 # Don't rely on these whatsoever. They may disappear at any time.
@@ -43,6 +44,7 @@ ironrdp-tokio = { path = "../ironrdp-tokio", version = "0.8", features = ["reqwe
 ironrdp-acceptor = { path = "../ironrdp-acceptor", version = "0.8" } # public
 ironrdp-graphics = { path = "../ironrdp-graphics", version = "0.7" } # public
 ironrdp-rdpsnd = { path = "../ironrdp-rdpsnd", version = "0.6" } # public
+ironrdp-egfx = { path = "../ironrdp-egfx", version = "0.1", optional = true } # public
 tracing = { version = "0.1", features = ["log"] }
 x509-cert = { version = "0.2.5", optional = true }
 rustls-pemfile = { version = "2.2.0", optional = true }

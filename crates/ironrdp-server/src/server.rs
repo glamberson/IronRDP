@@ -32,6 +32,8 @@ use {ironrdp_dvc as dvc, ironrdp_rdpsnd as rdpsnd};
 use crate::clipboard::CliprdrServerFactory;
 use crate::display::{DisplayUpdate, RdpServerDisplay};
 use crate::encoder::{UpdateEncoder, UpdateEncoderCodecs};
+#[cfg(feature = "egfx")]
+use crate::gfx::GfxServerFactory;
 use crate::handler::RdpServerInputHandler;
 use crate::{builder, capabilities, SoundServerFactory};
 
@@ -217,6 +219,8 @@ pub struct RdpServer {
     static_channels: StaticChannelSet,
     sound_factory: Option<Box<dyn SoundServerFactory>>,
     cliprdr_factory: Option<Box<dyn CliprdrServerFactory>>,
+    #[cfg(feature = "egfx")]
+    gfx_factory: Option<Box<dyn GfxServerFactory>>,
     ev_sender: mpsc::UnboundedSender<ServerEvent>,
     ev_receiver: Arc<Mutex<mpsc::UnboundedReceiver<ServerEvent>>>,
     creds: Option<Credentials>,
@@ -250,6 +254,38 @@ enum RunState {
 }
 
 impl RdpServer {
+    #[cfg(feature = "egfx")]
+    pub fn new(
+        opts: RdpServerOptions,
+        handler: Box<dyn RdpServerInputHandler>,
+        display: Box<dyn RdpServerDisplay>,
+        mut sound_factory: Option<Box<dyn SoundServerFactory>>,
+        mut cliprdr_factory: Option<Box<dyn CliprdrServerFactory>>,
+        gfx_factory: Option<Box<dyn GfxServerFactory>>,
+    ) -> Self {
+        let (ev_sender, ev_receiver) = ServerEvent::create_channel();
+        if let Some(cliprdr) = cliprdr_factory.as_mut() {
+            cliprdr.set_sender(ev_sender.clone());
+        }
+        if let Some(snd) = sound_factory.as_mut() {
+            snd.set_sender(ev_sender.clone());
+        }
+        Self {
+            opts,
+            handler: Arc::new(Mutex::new(handler)),
+            display: Arc::new(Mutex::new(display)),
+            static_channels: StaticChannelSet::new(),
+            sound_factory,
+            cliprdr_factory,
+            gfx_factory,
+            ev_sender,
+            ev_receiver: Arc::new(Mutex::new(ev_receiver)),
+            creds: None,
+            local_addr: None,
+        }
+    }
+
+    #[cfg(not(feature = "egfx"))]
     pub fn new(
         opts: RdpServerOptions,
         handler: Box<dyn RdpServerInputHandler>,
@@ -302,11 +338,20 @@ impl RdpServer {
         }
 
         let dcs_backend = DisplayControlBackend::new(Arc::clone(&self.display));
-        let dvc = dvc::DrdynvcServer::new()
+        let mut dvc = dvc::DrdynvcServer::new()
             .with_dynamic_channel(AInputHandler {
                 handler: Arc::clone(&self.handler),
             })
             .with_dynamic_channel(DisplayControlServer::new(Box::new(dcs_backend)));
+
+        // Add EGFX (Graphics Pipeline) DVC if configured
+        #[cfg(feature = "egfx")]
+        if let Some(gfx_factory) = self.gfx_factory.as_deref() {
+            let handler = gfx_factory.build_gfx_handler();
+            let gfx_server = ironrdp_egfx::server::GraphicsPipelineServer::new(handler);
+            dvc = dvc.with_dynamic_channel(gfx_server);
+        }
+
         acceptor.attach_static_channel(dvc);
     }
 
