@@ -33,7 +33,7 @@ use crate::clipboard::CliprdrServerFactory;
 use crate::display::{DisplayUpdate, RdpServerDisplay};
 use crate::encoder::{UpdateEncoder, UpdateEncoderCodecs};
 #[cfg(feature = "egfx")]
-use crate::gfx::GfxServerFactory;
+use crate::gfx::{EgfxServerMessage, GfxServerFactory};
 use crate::handler::RdpServerInputHandler;
 use crate::{builder, capabilities, SoundServerFactory};
 
@@ -234,6 +234,9 @@ pub enum ServerEvent {
     Rdpsnd(RdpsndServerMessage),
     SetCredentials(Credentials),
     GetLocalAddr(oneshot::Sender<Option<SocketAddr>>),
+    /// EGFX (Graphics Pipeline) server events for proactive frame sending
+    #[cfg(feature = "egfx")]
+    Egfx(EgfxServerMessage),
 }
 
 pub trait ServerEventSender {
@@ -347,9 +350,17 @@ impl RdpServer {
         // Add EGFX (Graphics Pipeline) DVC if configured
         #[cfg(feature = "egfx")]
         if let Some(gfx_factory) = self.gfx_factory.as_deref() {
-            let handler = gfx_factory.build_gfx_handler();
-            let gfx_server = ironrdp_egfx::server::GraphicsPipelineServer::new(handler);
-            dvc = dvc.with_dynamic_channel(gfx_server);
+            // Try bridge pattern first (enables proactive frame sending via Arc<Mutex<>>)
+            if let Some((bridge, _handle)) = gfx_factory.build_server_with_handle() {
+                // Bridge wraps Arc<Mutex<GraphicsPipelineServer>> for shared access
+                // The _handle is retained by the factory/display handler for frame sending
+                dvc = dvc.with_dynamic_channel(bridge);
+            } else {
+                // Fall back to basic handler-only mode (no proactive frame sending)
+                let handler = gfx_factory.build_gfx_handler();
+                let gfx_server = ironrdp_egfx::server::GraphicsPipelineServer::new(handler);
+                dvc = dvc.with_dynamic_channel(gfx_server);
+            }
         }
 
         acceptor.attach_static_channel(dvc);
@@ -614,6 +625,20 @@ impl RdpServer {
                         .ok_or_else(|| anyhow!("SVC channel not found"))?;
                     let data = server_encode_svc_messages(msgs.into(), channel_id, user_channel_id)?;
                     writer.write_all(&data).await?;
+                }
+                #[cfg(feature = "egfx")]
+                ServerEvent::Egfx(msg) => {
+                    // EGFX messages are pre-encoded SvcMessages for the DRDYNVC channel
+                    match msg {
+                        EgfxServerMessage::SendMessages { channel_id: _, messages } => {
+                            // Get the DRDYNVC static channel ID for encoding
+                            let drdynvc_channel_id = self
+                                .get_channel_id_by_type::<dvc::DrdynvcServer>()
+                                .ok_or_else(|| anyhow!("DRDYNVC channel not found"))?;
+                            let data = server_encode_svc_messages(messages, drdynvc_channel_id, user_channel_id)?;
+                            writer.write_all(&data).await?;
+                        }
+                    }
                 }
             }
         }
