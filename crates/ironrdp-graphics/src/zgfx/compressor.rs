@@ -141,25 +141,49 @@ impl Compressor {
         let base_pos = self.history.len();
         self.history.extend_from_slice(bytes);
 
-        // Update hash table with new 3-byte sequences
-        // This includes sequences that span the old history boundary
-        // Start from base_pos - 2 to catch sequences that start in old history
-        // but include new bytes
-        let start_pos = base_pos.saturating_sub(MIN_MATCH_LENGTH - 1);
-        let end_pos = self.history.len().saturating_sub(MIN_MATCH_LENGTH - 1);
+        // Update hash table with ONLY truly new 3-byte sequences
+        // We add:
+        // 1. Sequences that start in the newly added bytes
+        // 2. Sequences that span the boundary (start in old, extend into new)
+        //
+        // CRITICAL: Only add each position ONCE to avoid duplicates
 
-        for pos in start_pos..end_pos {
+        // Add sequences starting in new bytes
+        for i in 0..bytes.len().saturating_sub(MIN_MATCH_LENGTH - 1) {
+            let pos = base_pos + i;
+            let prefix = [
+                self.history[pos],
+                self.history[pos + 1],
+                self.history[pos + 2],
+            ];
+
+            self.match_table
+                .entry(prefix)
+                .or_insert_with(Vec::new)
+                .push(pos);
+        }
+
+        // Add sequences that span the boundary
+        // Only if we actually added bytes and have prior history
+        if base_pos >= 2 && bytes.len() >= 1 {
+            let pos = base_pos - 2;
             if pos + MIN_MATCH_LENGTH <= self.history.len() {
-                let prefix = [
-                    self.history[pos],
-                    self.history[pos + 1],
-                    self.history[pos + 2],
-                ];
-
-                self.match_table
-                    .entry(prefix)
-                    .or_insert_with(Vec::new)
-                    .push(pos);
+                let prefix = [self.history[pos], self.history[pos + 1], self.history[pos + 2]];
+                // Check if this position isn't already in the table (avoid duplicates)
+                let entry = self.match_table.entry(prefix).or_insert_with(Vec::new);
+                if entry.last() != Some(&pos) {
+                    entry.push(pos);
+                }
+            }
+        }
+        if base_pos >= 1 && bytes.len() >= 2 {
+            let pos = base_pos - 1;
+            if pos + MIN_MATCH_LENGTH <= self.history.len() {
+                let prefix = [self.history[pos], self.history[pos + 1], self.history[pos + 2]];
+                let entry = self.match_table.entry(prefix).or_insert_with(Vec::new);
+                if entry.last() != Some(&pos) {
+                    entry.push(pos);
+                }
             }
         }
     }
