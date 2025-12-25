@@ -48,6 +48,14 @@ const MAX_MATCH_DISTANCE: usize = 2_097_152; // Max for last token
 /// Limits worst-case performance when many positions share the same prefix
 const MAX_CANDIDATES: usize = 16;
 
+/// Maximum positions per hash table entry
+/// Prevents unbounded growth for common prefixes
+const MAX_POSITIONS_PER_PREFIX: usize = 32;
+
+/// Maximum total hash table entries before cleanup
+/// Keeps memory usage bounded
+const MAX_HASH_TABLE_ENTRIES: usize = 50_000;
+
 /// ZGFX Compressor with history buffer and hash table for fast match finding
 pub struct Compressor {
     /// History buffer containing previously compressed data
@@ -149,7 +157,17 @@ impl Compressor {
         // CRITICAL: Only add each position ONCE to avoid duplicates
 
         // Add sequences starting in new bytes
-        for i in 0..bytes.len().saturating_sub(MIN_MATCH_LENGTH - 1) {
+        // OPTIMIZATION: For large chunks (matches), don't add every position
+        // Sample positions to keep hash table manageable
+        let step_size = if bytes.len() > 256 {
+            // For large chunks (matches), sample every 4th position
+            4
+        } else {
+            // For small chunks (literals), add all positions
+            1
+        };
+
+        for i in (0..bytes.len().saturating_sub(MIN_MATCH_LENGTH - 1)).step_by(step_size) {
             let pos = base_pos + i;
             let prefix = [
                 self.history[pos],
@@ -157,10 +175,23 @@ impl Compressor {
                 self.history[pos + 2],
             ];
 
-            self.match_table
+            let entry = self.match_table
                 .entry(prefix)
-                .or_insert_with(Vec::new)
-                .push(pos);
+                .or_insert_with(Vec::new);
+
+            // Limit positions per prefix to prevent unbounded growth
+            if entry.len() < MAX_POSITIONS_PER_PREFIX {
+                entry.push(pos);
+            } else {
+                // Replace oldest position with newest (sliding window)
+                entry.remove(0);
+                entry.push(pos);
+            }
+        }
+
+        // Periodic hash table cleanup if it gets too large
+        if self.match_table.len() > MAX_HASH_TABLE_ENTRIES {
+            self.compact_hash_table();
         }
 
         // Add sequences that span the boundary
@@ -186,6 +217,23 @@ impl Compressor {
                 }
             }
         }
+    }
+
+    /// Compact hash table by keeping only recent positions
+    ///
+    /// Called when hash table grows too large. Keeps only the most recent
+    /// positions for each prefix to maintain performance.
+    fn compact_hash_table(&mut self) {
+        for positions in self.match_table.values_mut() {
+            if positions.len() > MAX_POSITIONS_PER_PREFIX / 2 {
+                // Keep only the most recent half
+                let keep_from = positions.len() - (MAX_POSITIONS_PER_PREFIX / 2);
+                *positions = positions[keep_from..].to_vec();
+            }
+        }
+
+        // Remove empty entries
+        self.match_table.retain(|_, positions| !positions.is_empty());
     }
 
     /// Find the best match in the history buffer using hash table

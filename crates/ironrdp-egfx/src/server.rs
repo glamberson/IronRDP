@@ -663,12 +663,17 @@ pub struct GraphicsPipelineServer {
 impl GraphicsPipelineServer {
     /// Create a new GraphicsPipelineServer
     pub fn new(handler: Box<dyn GraphicsPipelineHandler>) -> Self {
-        // Use Auto mode: compress and compare sizes, use smaller
-        // Hash table optimization ensures compression is fast (<100µs per frame)
-        // - Small PDUs: sent uncompressed (overhead > benefit)
-        // - H.264 frames: sent uncompressed (already compressed by codec)
-        // - Repetitive data: automatically compressed (10-70% reduction)
-        Self::with_compression(handler, CompressionMode::Auto)
+        // Use Never mode - H.264 video is already compressed by the codec
+        // Attempting ZGFX compression on H.264 provides no benefit and wastes CPU
+        //
+        // Never mode:
+        // - Just wraps in ZGFX segment structure (2-byte overhead)
+        // - <1µs processing time per PDU
+        // - No hash table maintenance
+        // - Production-ready and stable
+        //
+        // Note: Auto/Always modes available via with_compression() if needed
+        Self::with_compression(handler, CompressionMode::Never)
     }
 
     /// Create a new GraphicsPipelineServer with specified compression mode
