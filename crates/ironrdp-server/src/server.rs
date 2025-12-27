@@ -630,12 +630,22 @@ impl RdpServer {
                 ServerEvent::Egfx(msg) => {
                     // EGFX messages are pre-encoded SvcMessages for the DRDYNVC channel
                     match msg {
-                        EgfxServerMessage::SendMessages { channel_id: _, messages } => {
+                        EgfxServerMessage::SendMessages { channel_id: dvc_channel_id, messages } => {
                             // Get the DRDYNVC static channel ID for encoding
                             let drdynvc_channel_id = self
                                 .get_channel_id_by_type::<dvc::DrdynvcServer>()
                                 .ok_or_else(|| anyhow!("DRDYNVC channel not found"))?;
+                            trace!(
+                                dvc_channel_id = dvc_channel_id,
+                                svc_channel_id = drdynvc_channel_id,
+                                message_count = messages.len(),
+                                "ServerEvent::Egfx - sending EGFX PDUs"
+                            );
                             let data = server_encode_svc_messages(messages, drdynvc_channel_id, user_channel_id)?;
+                            trace!(
+                                bytes = data.len(),
+                                "Writing EGFX data to wire"
+                            );
                             writer.write_all(&data).await?;
                         }
                     }
@@ -980,9 +990,33 @@ impl RdpServer {
                 }
 
                 if let Some(svc) = self.static_channels.get_by_channel_id_mut(data.channel_id) {
+                    let svc_name = svc.channel_name();
                     let response_pdus = svc.process(&data.user_data)?;
+                    if !response_pdus.is_empty() {
+                        debug!(
+                            channel_id = data.channel_id,
+                            channel_name = ?svc_name,
+                            response_count = response_pdus.len(),
+                            "SVC process returned response PDUs (includes EGFX CapabilitiesConfirm if DRDYNVC)"
+                        );
+                    }
                     let response = server_encode_svc_messages(response_pdus, data.channel_id, user_channel_id)?;
+                    if !response.is_empty() {
+                        debug!(
+                            channel_id = data.channel_id,
+                            channel_name = ?svc_name,
+                            response_bytes = response.len(),
+                            "Writing SVC response to wire (CapabilitiesConfirm goes through here!)"
+                        );
+                    }
                     writer.write_all(&response).await?;
+                    if !response.is_empty() {
+                        debug!(
+                            channel_id = data.channel_id,
+                            channel_name = ?svc_name,
+                            "SVC response written to wire successfully"
+                        );
+                    }
                 } else {
                     warn!(channel_id = data.channel_id, "Unexpected channel received: ID",);
                 }

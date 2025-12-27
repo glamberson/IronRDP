@@ -23,19 +23,21 @@
 //! while the DVC infrastructure handles client capability negotiation and
 //! frame acknowledgments.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ironrdp_core::impl_as_any;
 use ironrdp_dvc::{DvcMessage, DvcProcessor, DvcServerProcessor};
 use ironrdp_egfx::server::{GraphicsPipelineHandler, GraphicsPipelineServer};
 use ironrdp_pdu::PduResult;
 use ironrdp_svc::SvcMessage;
-use tokio::sync::Mutex;
 
 /// Handle to a shared GraphicsPipelineServer
 ///
 /// Use this to call methods like `send_avc420_frame()` from outside
 /// the DVC processing path.
+///
+/// Uses `std::sync::Mutex` (not tokio) because the `DvcProcessor` trait
+/// has synchronous methods that cannot use async locks.
 pub type GfxServerHandle = Arc<Mutex<GraphicsPipelineServer>>;
 
 /// Factory trait for creating EGFX graphics pipeline handlers
@@ -99,10 +101,10 @@ pub trait GfxServerFactory: Send {
 ///
 /// # Thread Safety
 ///
-/// The bridge uses `tokio::sync::Mutex` for async-friendly locking.
-/// In the synchronous `DvcProcessor` methods, it uses `blocking_lock()`
-/// which is safe from async contexts but should not be called from
-/// within an async task that holds other locks.
+/// The bridge uses `std::sync::Mutex` for synchronous locking.
+/// This is required because `DvcProcessor` trait methods are synchronous
+/// and cannot use async locks. The mutex is held briefly during each
+/// operation, so contention should be minimal.
 pub struct GfxDvcBridge {
     inner: GfxServerHandle,
 }
@@ -129,15 +131,24 @@ impl DvcProcessor for GfxDvcBridge {
     }
 
     fn start(&mut self, channel_id: u32) -> PduResult<Vec<DvcMessage>> {
-        self.inner.blocking_lock().start(channel_id)
+        self.inner
+            .lock()
+            .expect("GfxServerHandle mutex poisoned")
+            .start(channel_id)
     }
 
     fn process(&mut self, channel_id: u32, payload: &[u8]) -> PduResult<Vec<DvcMessage>> {
-        self.inner.blocking_lock().process(channel_id, payload)
+        self.inner
+            .lock()
+            .expect("GfxServerHandle mutex poisoned")
+            .process(channel_id, payload)
     }
 
     fn close(&mut self, channel_id: u32) {
-        self.inner.blocking_lock().close(channel_id)
+        self.inner
+            .lock()
+            .expect("GfxServerHandle mutex poisoned")
+            .close(channel_id)
     }
 }
 
