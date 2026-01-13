@@ -1,9 +1,13 @@
 //! ZGFX (RDP8) Bulk Data Compression
 
+mod api;
 mod circular_buffer;
+mod compressor;
 mod control_messages;
 mod wrapper;
 
+pub use api::{compress_and_wrap_egfx, CompressionMode};
+pub use compressor::Compressor;
 pub use wrapper::{wrap_compressed, wrap_uncompressed};
 
 use std::io::{self, Write as _};

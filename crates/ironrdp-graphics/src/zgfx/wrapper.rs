@@ -298,4 +298,50 @@ mod tests {
         assert_eq!(segment_count, 2);
     }
 
+    #[test]
+    fn test_wrap_compressed_data() {
+        use crate::zgfx::Compressor;
+
+        let mut compressor = Compressor::new();
+        let data = b"Test data with some patterns for compression";
+
+        let compressed = compressor.compress(data).unwrap();
+        let wrapped = wrap_compressed(&compressed);
+
+        // Should have COMPRESSED flag set
+        assert_eq!(wrapped[0], 0xE0); // Single segment
+        assert_eq!(wrapped[1], 0x24); // 0x04 (RDP8) | (0x02 << 4) = 0x24
+
+        use crate::zgfx::Decompressor;
+        let mut decompressor = Decompressor::new();
+        let mut output = Vec::new();
+        decompressor.decompress(&wrapped, &mut output).unwrap();
+
+        assert_eq!(&output, data);
+    }
+
+    #[test]
+    fn test_compress_and_wrap_full_pipeline() {
+        use crate::zgfx::Compressor;
+        use crate::zgfx::Decompressor;
+
+        let mut compressor = Compressor::new();
+        let data = b"This is test data that will be compressed using ZGFX algorithm and then wrapped";
+
+        let compressed_data = compressor.compress(data).unwrap();
+        let wrapped = wrap_compressed(&compressed_data);
+
+        let mut decompressor = Decompressor::new();
+        let mut output = Vec::new();
+        decompressor.decompress(&wrapped, &mut output).unwrap();
+
+        assert_eq!(&output, data);
+
+        println!(
+            "Original: {} bytes, Compressed+Wrapped: {} bytes, Ratio: {:.2}x",
+            data.len(),
+            wrapped.len(),
+            data.len() as f64 / wrapped.len() as f64
+        );
+    }
 }
