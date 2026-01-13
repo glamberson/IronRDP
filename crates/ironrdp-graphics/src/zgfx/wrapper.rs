@@ -297,4 +297,5 @@ mod tests {
         let segment_count = u16::from_le_bytes([wrapped[1], wrapped[2]]);
         assert_eq!(segment_count, 2);
     }
+
 }
